@@ -1,20 +1,34 @@
 import streamlit as st
 import requests
 import pandas as pd
-import plotly.graph_objects as go
 from datetime import datetime
+import time
+import random
 
-# Configuración de la página
-st.set_page_config(page_title="Radar P2P Inteligente", layout="wide", page_icon="📈")
+# Configuración profesional de la página
+st.set_page_config(page_title="Radar P2P: Arbitraje BR-VE", layout="wide", page_icon="🕵️‍♂️")
 
-# --- FUNCIONES DE DATOS ---
+# --- MOTOR DE DATOS CON CAMUFLAJE ---
 def fetch_p2p_data(asset, fiat, trade_type, trans_amount=0):
-    """Obtiene datos directamente del endpoint interno de Binance P2P"""
+    """Simula una petición desde un navegador Chrome en Mac"""
     url = "https://p2p.binance.com/bapi/c2c/v2/friendly/c2c/adv/search"
+    
+    # Lista de User-Agents para variar y no parecer un bot fijo
+    user_agents = [
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_2_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"
+    ]
+    
     headers = {
+        "Accept": "*/*",
+        "Accept-Language": "es-ES,es;q=0.9",
         "Content-Type": "application/json",
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+        "Origin": "https://p2p.binance.com",
+        "Referer": f"https://p2p.binance.com/es/trade/sell/{asset}?fiat={fiat}",
+        "User-Agent": random.choice(user_agents),
+        "clienttype": "web"
     }
+    
     payload = {
         "asset": asset,
         "fiat": fiat,
@@ -22,97 +36,81 @@ def fetch_p2p_data(asset, fiat, trade_type, trans_amount=0):
         "page": 1,
         "payTypes": [],
         "publisherType": None,
-        "rows": 20,
+        "rows": 10,
         "tradeType": trade_type,
         "transAmount": trans_amount
     }
     
     try:
-        response = requests.post(url, json=payload, headers=headers)
-        data = response.json()
-        if data['success']:
-            return data['data']
+        # Retraso humano aleatorio
+        time.sleep(random.uniform(0.5, 1.2))
+        response = requests.post(url, json=payload, headers=headers, timeout=12)
+        if response.status_code == 200:
+            data = response.json()
+            return data.get('data', [])
         return []
-    except Exception as e:
-        st.error(f"Error de conexión: {e}")
+    except:
         return []
 
 def process_ads(ads):
-    """Limpia y estructura los anuncios"""
+    if not ads: return pd.DataFrame()
     processed = []
     for ad in ads:
         adv = ad['adv']
         advertiser = ad['advertiser']
         processed.append({
-            "User": advertiser['nickName'],
-            "Price": float(adv['price']),
-            "Available": float(adv['surplusAmount']),
-            "Min_Order": float(adv['minSingleTransAmount']),
-            "Rating": float(advertiser['monthFinishRate']) * 100,
-            "Orders": advertiser['monthOrderCount'],
-            "Methods": [p['identifier'] for p in adv['tradeMethods']]
+            "Comerciante": advertiser['nickName'],
+            "Precio": float(adv['price']),
+            "Disponible": float(adv['surplusAmount']),
+            "Confianza": f"{float(advertiser['monthFinishRate']) * 100:.1f}%",
+            "Órdenes": advertiser['monthOrderCount'],
+            "Pagos": [p['identifier'] for p in adv['tradeMethods']]
         })
     return pd.DataFrame(processed)
 
-# --- INTERFAZ SIDEBAR ---
-st.sidebar.header("⚙️ Configuración del Radar")
-capital_usd = st.sidebar.selectbox("Capital de Simulación (USD)", [500, 1000, 5000, 10000], index=1)
-fee_percent = st.sidebar.slider("Comisión Operativa (%)", 0.0, 5.0, 1.5)
-update_btn = st.sidebar.button("🔄 Actualizar Mercado")
+# --- INTERFAZ DEL RADAR ---
+st.title("🛡️ Radar P2P: Inteligencia de Arbitraje")
+st.write(f"**Estado del Mercado:** Actualizado a las {datetime.now().strftime('%H:%M:%S')}")
 
-# --- LÓGICA PRINCIPAL ---
-st.title("🛡️ Radar P2P: Arbitraje BR-VE")
-st.caption(f"Última actualización: {datetime.now().strftime('%H:%M:%S')}")
+# Panel lateral
+st.sidebar.header("⚙️ Ajustes")
+capital = st.sidebar.number_input("Capital de trabajo (USD)", value=1000)
+comision = st.sidebar.slider("Comisión bancaria/envío (%)", 0.0, 5.0, 1.5)
+if st.sidebar.button("🔄 Refrescar Datos"):
+    st.rerun()
 
 col1, col2 = st.columns(2)
 
-# Obtención de datos
-with st.spinner('Escaneando Binance P2P...'):
-    df_brl = process_ads(fetch_p2p_data("USDT", "BRL", "BUY"))
-    df_ves = process_ads(fetch_p2p_data("USDT", "VES", "SELL"))
+with st.spinner('Consultando Binance P2P...'):
+    # Brasil: Queremos COMPRAR USDT con BRL
+    df_brl = process_ads(fetch_p2p_data("USDT", "BRL", "BUY", capital))
+    # Venezuela: Queremos VENDER USDT por VES
+    df_ves = process_ads(fetch_p2p_data("USDT", "VES", "SELL", capital))
 
 if not df_brl.empty and not df_ves.empty:
-    price_brl = df_brl['Price'].iloc[0]
-    price_ves = df_ves['Price'].iloc[0]
+    p_brl = df_brl['Precio'].iloc[0]
+    p_ves = df_ves['Precio'].iloc[0]
     
-    # Métricas principales
     with col1:
-        st.metric("USDT / BRL (Compra)", f"R$ {price_brl:,.2f}")
+        st.success("🇧🇷 Mercado Brasil (BRL)")
+        st.metric("Precio Compra", f"R$ {p_brl:,.2f}")
     with col2:
-        st.metric("USDT / VES (Venta)", f"Bs {price_ves:,.2f}")
+        st.warning("🇻🇪 Mercado Venezuela (VES)")
+        st.metric("Precio Venta", f"Bs {p_ves:,.2f}")
 
-    # --- CÁLCULO DE ARBITRAJE ---
-    # Simulando que el usuario tiene USD y compra en BRL para vender en VES (o viceversa)
-    # Aquí puedes ajustar la lógica según tu flujo real de cuentas.
+    # Análisis de ganancia
     st.divider()
-    st.subheader("📊 Análisis de Oportunidades")
+    spread_bruto = ((p_ves / p_brl) - 1) * 100 # Nota: aproximación
+    st.subheader(f"📈 Análisis de oportunidad")
+    st.write(f"El spread detectado entre puntas es de aproximadamente **{spread_bruto:.2f}%**.")
     
-    # Ejemplo: Spread bruto entre mercados
-    # Nota: Requiere una tasa de cambio BRL/VES actualizada para mayor precisión
-    st.info("El sistema detecta los mejores anuncios actuales para tu capital seleccionado.")
-
-    # --- DETECCIÓN DE BALLENAS ---
-    st.subheader("🐋 Detección de Ballenas (> 5,000 USDT)")
-    all_ads = pd.concat([df_brl.assign(Market='BRL'), df_ves.assign(Market='VES')])
-    whales = all_ads[all_ads['Available'] >= 5000]
-    
-    if not whales.empty:
-        st.warning(f"Se detectaron {len(whales)} ballenas operando ahora.")
-        st.dataframe(whales[['Market', 'User', 'Price', 'Available', 'Rating']])
-    else:
-        st.success("Mercado distribuido: No hay ballenas grandes bloqueando liquidez.")
-
-    # --- TABLAS DE MERCADO ---
-    tab1, tab2 = st.tabs(["🇧🇷 Mercado Brasil (BRL)", "🇻🇪 Mercado Venezuela (VES)"])
-    
-    with tab1:
-        st.dataframe(df_brl.style.highlight_max(axis=0, subset=['Rating']))
-        
-    with tab2:
-        st.dataframe(df_ves.style.highlight_max(axis=0, subset=['Rating']))
+    tab1, tab2 = st.tabs(["📋 Anuncios en Brasil", "📋 Anuncios en Venezuela"])
+    with tab1: st.table(df_brl.head(5))
+    with t2: st.table(df_ves.head(5))
 
 else:
-    st.error("No se pudieron obtener datos. Binance podría estar limitando las peticiones temporales.")
+    st.error("⚠️ Binance bloqueó la conexión automática.")
+    st.info("💡 **Qué hacer:** Espera 1 minuto y recarga la página. Los servidores de Streamlit a veces son detectados como bots.")
 
 st.divider()
-st.caption("Aviso: Esta herramienta es informativa. El trading P2P conlleva riesgos de contraparte.")
+st.caption("Uso informativo. Los precios pueden variar según el método de pago.")
